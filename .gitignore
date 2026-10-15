@@ -1,0 +1,14 @@
+# Arduino's own binaries and images are downloaded, not redistributed here.
+# They are theirs, they are large, and the README tells you where to get them.
+tools/
+*.tar.zst
+*.tar.gz
+SHA256
+
+# Unpacked flash packages and anything pulled off a board.
+*.qcomflash/
+core-image-*/
+*.img
+*.bin
+*.elf
+!meta-unoq/recipes-bsp/unoq-mcu-tools/files/*

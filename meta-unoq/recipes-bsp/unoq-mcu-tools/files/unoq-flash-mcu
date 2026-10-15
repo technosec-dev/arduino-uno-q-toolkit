@@ -1,0 +1,130 @@
+#!/bin/sh
+# Program the Arduino UNO Q's STM32U585 from the board's own Linux side.
+#
+# The MCU has no external SWD pins, so there is no probe to plug in: its debug
+# lines are GPIOs of the application processor and Linux bitbangs SWD over them.
+# That means the board can flash its own microcontroller with no extra hardware,
+# which is also the only way to do it.
+#
+# Two images, because a signed application is not bootable on its own:
+#
+#   mcuboot.bin        the bootloader, at the start of flash
+#   zephyr.signed.bin  the application, in MCUboot's slot 0
+#
+# MCUboot validates the signature in the application's header and jumps to it.
+# Flashing only the application leaves a board that does nothing, and flashing
+# only the bootloader leaves one that finds no valid image: both are needed, and
+# both must come from the same build, because the bootloader embeds the public
+# key the application was signed with and the slot layout they agree on.
+set -eu
+
+FW_DIR="${UNOQ_FW_DIR:-/lib/firmware}"
+BOOTLOADER="${UNOQ_BOOTLOADER:-${FW_DIR}/mcuboot.bin}"
+APP="${UNOQ_APP:-${FW_DIR}/zephyr.signed.bin}"
+
+# Where MCUboot expects slot 0. Overridable because a different bootloader
+# configuration moves it, and a wrong address produces a board that is silent
+# rather than one that complains.
+SLOT0_ADDR="${UNOQ_SLOT0_ADDR:-0x08010000}"
+
+CFG="${UNOQ_OPENOCD_CFG:-/usr/share/unoq-mcu-tools/openocd-unoq.cfg}"
+OPENOCD="${OPENOCD:-openocd}"
+
+usage() {
+    cat <<USAGE
+Usage: unoq-flash-mcu [options]
+
+  --app-only          flash only the application, leaving the bootloader alone
+  --bootloader-only   flash only the bootloader
+  --probe             report what the MCU is and what it is running, write nothing
+  --reset             reset the MCU and exit
+  -h, --help          this text
+
+Files (override with the environment):
+  UNOQ_BOOTLOADER    ${BOOTLOADER}
+  UNOQ_APP           ${APP}
+  UNOQ_SLOT0_ADDR    ${SLOT0_ADDR}
+  UNOQ_OPENOCD_CFG   ${CFG}
+
+Runs unprivileged: the SWD pins are reached through /dev/gpiochip*, so
+membership of the group that owns those nodes is enough and root is not needed.
+USAGE
+}
+
+MODE=both
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --app-only) MODE=app ;;
+        --bootloader-only) MODE=bootloader ;;
+        --probe) MODE=probe ;;
+        --reset) MODE=reset ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "unoq-flash-mcu: unknown option $1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+command -v "$OPENOCD" >/dev/null 2>&1 || {
+    echo "unoq-flash-mcu: $OPENOCD not found" >&2
+    exit 1
+}
+[ -r "$CFG" ] || { echo "unoq-flash-mcu: cannot read $CFG" >&2; exit 1; }
+
+run_openocd() {
+    "$OPENOCD" -s "$(dirname "$CFG")" -f "$CFG" -c "$1"
+}
+
+case "$MODE" in
+probe)
+    # reset halt rather than halt: a running Zephyr application idles in WFI,
+    # and halting it then reports "unknown state" instead of a program counter,
+    # which looks like a fault and is not one.
+    run_openocd "init; reset halt; reg pc; resume; shutdown"
+    exit 0
+    ;;
+reset)
+    run_openocd "reset_config srst_only srst_push_pull; init; reset; shutdown"
+    exit 0
+    ;;
+esac
+
+# Check the application before writing anything. An MCUboot image starts with a
+# magic number, and a file that lacks it is either unsigned or not an image at
+# all. Flashing it would produce a board that sits in the bootloader with
+# nothing to say, which is a slow thing to diagnose on hardware whose console
+# needs a level shifter.
+check_app() {
+    [ -r "$APP" ] || { echo "unoq-flash-mcu: cannot read $APP" >&2; exit 1; }
+    magic=$(od -An -tx4 -N4 "$APP" 2>/dev/null | tr -d ' \n')
+    if [ "$magic" != "96f3b83d" ]; then
+        echo "unoq-flash-mcu: $APP does not start with the MCUboot image magic" >&2
+        echo "  found 0x${magic:-<empty>}, expected 0x96f3b83d" >&2
+        echo "  a signed application is required here, not a raw binary or an ELF" >&2
+        exit 1
+    fi
+}
+
+CMDS="reset_config srst_only srst_push_pull; init; reset; halt"
+case "$MODE" in
+both)
+    [ -r "$BOOTLOADER" ] || { echo "unoq-flash-mcu: cannot read $BOOTLOADER" >&2; exit 1; }
+    check_app
+    # The bootloader carries its own load address, whether it is an ELF or a
+    # binary written at the start of flash.
+    CMDS="${CMDS}; flash write_image erase ${BOOTLOADER} 0x08000000 bin"
+    CMDS="${CMDS}; flash write_image erase ${APP} ${SLOT0_ADDR} bin"
+    ;;
+bootloader)
+    [ -r "$BOOTLOADER" ] || { echo "unoq-flash-mcu: cannot read $BOOTLOADER" >&2; exit 1; }
+    CMDS="${CMDS}; flash write_image erase ${BOOTLOADER} 0x08000000 bin"
+    ;;
+app)
+    check_app
+    CMDS="${CMDS}; flash write_image erase ${APP} ${SLOT0_ADDR} bin"
+    ;;
+esac
+CMDS="${CMDS}; reset; shutdown"
+
+echo "unoq-flash-mcu: programming the STM32U585 over SWD"
+run_openocd "$CMDS"
+echo "unoq-flash-mcu: done. --probe reports where the MCU is executing."
