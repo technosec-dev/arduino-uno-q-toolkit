@@ -95,7 +95,18 @@ esac
 # needs a level shifter.
 check_app() {
     [ -r "$APP" ] || { echo "unoq-flash-mcu: cannot read $APP" >&2; exit 1; }
-    magic=$(od -An -tx4 -N4 "$APP" 2>/dev/null | tr -d ' \n')
+    # hexdump, not od. This board's od is BusyBox and supports none of -A, -t
+    # or -N, so the GNU form
+    #
+    #     od -An -tx4 -N4 "$APP"
+    #
+    # wrote "od: invalid option -- 'A'" to a stderr this discards and returned
+    # nothing, which made the comparison below reject every image ever handed
+    # to it, correctly signed ones included. --probe does not call this, so the
+    # tool looked healthy. BusyBox hexdump does support -n and -e; 1/4 reads a
+    # single 4-byte little-endian word, which is the order MCUboot writes its
+    # magic in.
+    magic=$(hexdump -n 4 -e '1/4 "%08x"' "$APP" 2>/dev/null)
     if [ "$magic" != "96f3b83d" ]; then
         echo "unoq-flash-mcu: $APP does not start with the MCUboot image magic" >&2
         echo "  found 0x${magic:-<empty>}, expected 0x96f3b83d" >&2
