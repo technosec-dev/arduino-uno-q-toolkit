@@ -301,12 +301,83 @@ BBLAYERS += "/path/to/meta-container-deploy"
 
 ## The Zephyr side
 
-The MCU firmware in this repository is built with Zephyr and `sysbuild`, so one
-build produces both MCUboot and a signed application. The application for the
-board's 13x8 LED matrix is not here yet: the matrix is described in Zephyr's
-devicetree only from `v4.5.0-rc1` onwards, and there is no stable release
-carrying it at the time of writing. Until then, any `sysbuild` application for
-the `arduino_uno_q` board works with the flashing instructions above.
+`zephyr/` holds a complete application for the board's 13x8 LED matrix and the
+west manifest to build it, so the MCU half needs no more than the Yocto half
+does: a checkout and one command.
+
+```
+zephyr/west.yml                                 pins Zephyr v4.5.0-rc1
+zephyr/led-matrix/CMakeLists.txt
+zephyr/led-matrix/prj.conf                      display + console
+zephyr/led-matrix/sysbuild.conf                 MCUboot alongside the app
+zephyr/led-matrix/boards/arduino_uno_q.overlay  console on lpuart1
+zephyr/led-matrix/src/main.c
+```
+
+### Build it
+
+```sh
+pip install west
+west init -m https://github.com/technosec-dev/arduino-uno-q-toolkit \
+    --mf zephyr/west.yml unoq-zephyr
+cd unoq-zephyr
+west update
+west zephyr-export
+pip install -r zephyr/scripts/requirements.txt
+
+west build -b arduino_uno_q --sysbuild \
+    arduino-uno-q-toolkit/zephyr/led-matrix
+```
+
+You also need a Zephyr SDK for `arm-zephyr-eabi`; Zephyr's own getting-started
+page covers installing it.
+
+`--sysbuild` is not optional here. It is what produces the bootloader as well as
+the application, and the two have to come from the same build for the reasons in
+the flashing section above. The images land at
+
+```
+build/mcuboot/zephyr/zephyr.bin
+build/led-matrix/zephyr/zephyr.signed.bin
+```
+
+which are the two files `unoq-flash-mcu` wants.
+
+### Why the manifest pins a release candidate
+
+`v4.5.0-rc1` is the first Zephyr tag whose `arduino_uno_q` devicetree describes
+the matrix. The board itself landed earlier and is in `v4.4.2`, but that tag has
+no `charlieplex-led-matrix` node and no `zephyr,display`, so this application
+does not build against it. There is no stable tag with the matrix at the time of
+writing, so the choice is a release candidate or nothing.
+
+### What the application does, and what is worth copying from it
+
+It sweeps a column across the panel and then draws a bitmap, on a loop. The
+sweep is there as a check rather than for decoration: a wrong row stride walks
+the column diagonally and a wrong bit order sweeps each group of eight
+backwards, and both are obvious on the panel while neither produces an error
+anywhere.
+
+The matrix is a display, not 104 addressable LEDs. The board's devicetree sets
+`zephyr,display = &led_matrix`, the driver scans the panel from TIM17, and the
+application writes a framebuffer through the display API. Two details of that
+framebuffer are easy to get wrong and silent when you do:
+
+- The driver offers `PIXEL_FORMAT_MONO01` and nothing else, so one bit per
+  pixel, set meaning lit. The `grayscale-bits = <3>` in the devicetree is the
+  driver's internal duty resolution, which `display_set_brightness()` reaches
+  and a write does not.
+- Its write path reads row `n` at `buf + n * (pitch / 8)` and takes a column as
+  `(byte >> (col % 8)) & 1`. So `pitch` counts PIXELS and must be a whole number
+  of bytes, and the bits run least-significant-first across each byte, not
+  MSB-first as display code often assumes. Thirteen columns therefore means a
+  pitch of 16 and two bytes per row.
+
+The board's devicetree chooses no console at all, which is why the overlay
+points one at `lpuart1`. That is the internal link to the Qualcomm side, so the
+boot banner is readable from Linux on `/dev/ttyHS1`. Without it a perfectly good
+build is indistinguishable from a dead one.
 
 ## Getting a shell
 

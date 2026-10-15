@@ -1,0 +1,18 @@
+/*
+ * SPDX-License-Identifier: MIT
+ *
+ * The board devicetree sets zephyr,display = &led_matrix but chooses no
+ * console, so a build without this produces no output on any pin. lpuart1 is
+ * already enabled at 115200 on PG5..PG8 and is the internal link to the
+ * QRB2210, where Linux sees it as /dev/ttyHS1.
+ *
+ * Nothing here touches the matrix: its node, its TIM17 counter and the
+ * pixel-to-pin-pair table are all in the board's own devicetree and correct as
+ * they stand.
+ */
+/ {
+	chosen {
+		zephyr,console = &lpuart1;
+		zephyr,shell-uart = &lpuart1;
+	};
+};
