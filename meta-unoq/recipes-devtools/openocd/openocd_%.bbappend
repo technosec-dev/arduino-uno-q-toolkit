@@ -12,11 +12,23 @@
 PACKAGECONFIG[linuxgpiod] = "--enable-linuxgpiod,--disable-linuxgpiod,libgpiod"
 PACKAGECONFIG:append = " linuxgpiod"
 
-# If the build fails in the linuxgpiod driver with unknown libgpiod symbols or
-# struct members, OpenOCD and libgpiod disagree about the API version. meta-oe
-# carries both lines, so pin whichever the OpenOCD revision wants, in local.conf
-# or a distro conf:
+# This needs libgpiod v1, and meta-oe defaults to v2.
 #
-#     PREFERRED_VERSION_libgpiod = "1.6.5"   # or "2.2.4"
+# OpenOCD's configure asks pkg-config for "libgpiod < 2.0". meta-oe carries both
+# libgpiod 1.6.5 and 2.2.4 under the same recipe name, so whichever the
+# PREFERRED_VERSION resolves to is what configure sees. With the v2 line it
+# answers no, and then fails outright because the adapter was requested:
 #
-# A given OpenOCD revision speaks exactly one of them.
+#     configure: error: Linux libgpiod is required for adapter
+#                       "Linux GPIO bitbang through libgpiod"
+#
+# So the build configuration has to pin the v1 line. This cannot be done from a
+# bbappend without forcing a global preference on every other recipe too, so it
+# belongs in local.conf or a distro conf:
+#
+#     PREFERRED_VERSION_libgpiod = "1.6.5"
+#
+# Verified against OpenOCD 0.12+git at the revision meta-oe builds
+# (66ea461846a3a4a96687c9287c3f61ae8ce0b775). A later revision that gained
+# libgpiod v2 support would want the opposite pin, so check configure.ac rather
+# than trusting this note if you bump OpenOCD.

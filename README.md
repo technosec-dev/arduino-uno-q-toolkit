@@ -1,11 +1,20 @@
-# Arduino UNO Q: flashing, recovery, and running your own image
+# Arduino UNO Q toolkit
 
-A practical guide to putting an operating system on an Arduino UNO Q and
-getting the factory one back afterwards.
+Build your own firmware for both of the Arduino UNO Q's processors, and get the
+factory image back when you want it.
 
 The UNO Q has two processors. The Qualcomm QRB2210 (the MPU) runs Linux from
-eMMC. The STM32U585 (the MCU) runs its own firmware and is programmed
-separately. This guide is about the Linux side.
+eMMC. The STM32U585 (the MCU) runs its own firmware. This repository covers
+both, plus the part that is least documented anywhere: the MCU has no external
+SWD pins, so the only thing that can program it is the Linux side of the same
+board.
+
+What is here:
+
+- a guide to EDL recovery and flashing, below;
+- `meta-unoq`, a Yocto layer that enables OpenOCD's `linuxgpiod` adapter and
+  ships the board's SWD pin map with a script that flashes the MCU;
+- notes on building a Linux image that can program its own microcontroller.
 
 There is no SD card slot for the MPU, so there is no "take the card out and fix
 it on your laptop". The only way in is the SoC's Emergency Download mode (EDL),
@@ -113,7 +122,9 @@ EDL is entered by holding the `USB_BOOT` strap low while the board powers on.
 The strap is sampled once at power-on, so the board must be fully unpowered
 first. Unplugging USB-C is enough.
 
-The JCTL header is a 2x5 next to the USB-C connector:
+The JCTL header is a 2x5 next to the USB-C connector, silkscreened `JCTL`:
+
+![The JCTL header, with the two ground pins marked by a square in the silkscreen](docs/jctl.jpg)
 
 | | left | right |
 | --- | --- | --- |
@@ -126,20 +137,29 @@ The JCTL header is a 2x5 next to the USB-C connector:
 `USB_BOOT` and a `GND` sit opposite each other in row 5, so a jumper shunt
 placed **across that end row** is all that is needed.
 
-### Identify the row electrically, do not count on a photograph
+### Find the row by the silkscreen, then confirm it
 
-Published pictures disagree about whether the header is at the upper left or
-the upper right, and the board can be the other way round from whatever diagram
-you are looking at. With the board unpowered, use a multimeter in continuity
-mode from a known ground (the USB-C shell, or a mounting hole) to the two pins
-at **each** end of the header:
+**The two ground pins are marked.** Each carries a white square in the
+silkscreen, and no other pin on the header does. That is the quickest way to
+orient yourself, and it is printed on the board in your hand rather than on a
+photograph of someone else's.
 
-- the end row with **exactly one** ground pin is row 5: that is the one to
-  jumper
-- the end row with **no** ground pin is row 1: leave it alone
+There are exactly two of those marks, at rows 2 and 5, and only row 5 is at an
+end of the header. So:
 
-There are only two grounds on this header, at rows 2 and 5, and only row 5 is
-at an end, so this is unambiguous.
+- the end row that has a marked pin is **row 5**: that is the one to jumper
+- the end row with no marked pin is **row 1**: leave it alone
+
+This matters because published pictures disagree about whether the header sits
+at the upper left or the upper right, and your board can be the other way round
+from whatever diagram you are looking at. Orientation taken from a photograph is
+how people short the wrong pins.
+
+If the silkscreen is hard to read under a heatsink or poor light, confirm it
+electrically: with the board unpowered, use a multimeter in continuity mode from
+a known ground (the USB-C shell, or a mounting hole) to the two pins at **each**
+end of the header. The end row with exactly one ground pin is row 5; the end row
+with none is row 1.
 
 ### Three ways to damage the board
 
@@ -182,6 +202,111 @@ qdl --allow-missing --storage emmc prog_firehose_ddr.elf rawprogram0.xml patch0.
 boards are attached, `--serial=<serial>` picks one.
 
 A successful run ends with `partition 0 is now bootable`.
+
+## Building your own Linux image with Yocto
+
+Any Yocto build for this board needs the Qualcomm BSP layers (`meta-qcom` and
+`meta-qcom-arduino`, which carries the `uno-q` machine and the
+`qrb2210-arduino-imola` device tree) on top of `openembedded-core`. That part is
+upstream and documented. What is not documented is how to program the
+microcontroller afterwards, which is what `meta-unoq` is for.
+
+Add it to `bblayers.conf`. The layer lives in a subdirectory of this
+repository, so point at that path rather than the repository root:
+
+```
+BBLAYERS += "/path/to/arduino-uno-q-toolkit/meta-unoq"
+```
+
+It needs `meta-oe`, which is where OpenOCD and libgpiod come from.
+
+One pin is required. OpenOCD's `linuxgpiod` adapter wants libgpiod v1, and
+meta-oe defaults to v2, so without this the OpenOCD build fails in `configure`:
+
+```
+PREFERRED_VERSION_libgpiod = "1.6.5"
+```
+
+Then install the tools in your image:
+
+```
+CORE_IMAGE_EXTRA_INSTALL += "unoq-mcu-tools"
+```
+
+That pulls in OpenOCD, and the layer's `bbappend` enables the `linuxgpiod`
+adapter driver. meta-oe builds OpenOCD with `sysfsgpio` and `remote-bitbang`
+only, and neither is usable here: `sysfsgpio` is deprecated upstream and numbers
+pins globally, so a number changes when a gpiochip's base moves, while
+`remote-bitbang` wants a server at the other end.
+
+### Programming the MCU from the board itself
+
+The STM32U585's debug lines are GPIOs of the QRB2210. Linux bitbangs SWD over
+them, which means no probe to plug in and no probe to lose, and also that the
+board is the only thing that can do it.
+
+Put two files where the script looks for them, both from the same build:
+
+```
+/lib/firmware/mcuboot.bin        the bootloader, at the start of flash
+/lib/firmware/zephyr.signed.bin  the application, in MCUboot's slot 0
+```
+
+Then, on the board:
+
+```sh
+unoq-flash-mcu            # bootloader and application
+unoq-flash-mcu --app-only # just the application, once the bootloader is there
+unoq-flash-mcu --probe    # report what the MCU is and where it is executing
+```
+
+It runs unprivileged: the SWD pins are reached through `/dev/gpiochip*`, so
+membership of the group owning those nodes is enough.
+
+Both images have to come from the same build. The bootloader embeds the public
+key the application was signed with, and the two agree on where slot 0 begins.
+A signed application alone leaves a board that does nothing; a bootloader alone
+leaves one that finds no valid image. Neither says so out loud.
+
+Note that Arduino's own layout is different: their script writes a Zephyr core
+at its own addresses and a *sketch* at `0x080F0000`. An MCUboot image from
+`sysbuild` links into slot 0 at `0x08010000` instead, so their addresses do not
+apply to it. If you are unsure which you have, an MCUboot image begins with the
+magic number `0x96f3b83d`, and `unoq-flash-mcu` refuses anything that does not.
+
+The MCU's flash is independent of the eMMC, so the microcontroller keeps its
+firmware across a Linux reflash. You can program it from one image and then
+install another.
+
+## Add-on: containers at build time, and growing the rootfs
+
+Two things most people want next are not in this layer, because they are not
+specific to this board. They are in
+[meta-container-deploy](https://github.com/technosec-dev/meta-container-deploy),
+also open source:
+
+- **Containers baked into the image at build time**, with podman and Quadlet
+  units, so a device boots with its workloads already present and pulls nothing
+  on first start.
+- **`rootfs-expand`**, which grows the root filesystem to fill its partition on
+  first boot. Useful here because a built image is a few hundred megabytes while
+  the eMMC is tens of gigabytes, and the flashing step sizes the partition to
+  the disk but leaves the filesystem as built.
+
+Add it the same way:
+
+```
+BBLAYERS += "/path/to/meta-container-deploy"
+```
+
+## The Zephyr side
+
+The MCU firmware in this repository is built with Zephyr and `sysbuild`, so one
+build produces both MCUboot and a signed application. The application for the
+board's 13x8 LED matrix is not here yet: the matrix is described in Zephyr's
+devicetree only from `v4.5.0-rc1` onwards, and there is no stable release
+carrying it at the time of writing. Until then, any `sysbuild` application for
+the `arduino_uno_q` board works with the flashing instructions above.
 
 ## Getting a shell
 
@@ -256,3 +381,16 @@ hardware and your flashing are good and the problem is in your image.
 
 Enter EDL and flash the factory image. EDL is in ROM and does not depend on
 anything stored on eMMC, so no image you write can take that path away.
+
+## Built by TechnoSec
+
+Open source, usable with plain Yocto. Issues and pull requests welcome. See also
+[meta-container-deploy](https://github.com/technosec-dev/meta-container-deploy)
+for containers at build time and `rootfs-expand`.
+
+Doing this by hand teaches you the board. Getting the same image out of it a year
+later is a different job, and that is what we build
+[EmbedForge](https://embedforge.io) for: images like this one from a declarative
+template, with an SBOM and CVE tracking per build, and a two-processor board
+treated as one device. In public preview, access by invitation, so ask if you are
+building a product on this.
