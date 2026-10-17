@@ -222,19 +222,53 @@ It provides:
 | kernel fragments | the gadget symbols, and Pulsar's requirements that `meta-exein` cannot deliver here |
 | a configuration check | warns at `do_configure` when a fragment was silently ignored |
 
-Add it to `bblayers.conf`. The layer lives in a subdirectory of this
-repository, so point at that path rather than the repository root:
+### The layers
+
+This is the set a `core-image-minimal` for this board actually needs, which is
+more than the four layers people usually expect. `meta-unoq` lives in a
+subdirectory of this repository, so point at that path and not the repository
+root.
 
 ```
-BBLAYERS += "/path/to/arduino-uno-q-toolkit/meta-unoq"
+BBLAYERS ?= " \
+    /path/to/arduino-uno-q-toolkit/meta-unoq \
+    /path/to/meta-arm/meta-arm \
+    /path/to/meta-arm/meta-arm-toolchain \
+    /path/to/meta-exein \
+    /path/to/meta-lts-mixins \
+    /path/to/meta-openembedded/meta-filesystems \
+    /path/to/meta-openembedded/meta-networking \
+    /path/to/meta-openembedded/meta-oe \
+    /path/to/meta-openembedded/meta-python \
+    /path/to/meta-qcom \
+    /path/to/meta-qcom-arduino \
+    /path/to/openembedded-core/meta"
 ```
 
-It needs `meta-oe`, which is where OpenOCD and libgpiod come from.
+`meta-oe` is where OpenOCD and libgpiod come from, and it drags in
+`meta-python`, `meta-networking` and `meta-filesystems`. `meta-lts-mixins`
+supplies the linux-firmware that `meta-qcom` wants. Drop `meta-exein` if you do
+not want the Exein stack.
 
-One pin is required. OpenOCD's `linuxgpiod` adapter wants libgpiod v1, and
-meta-oe defaults to v2, so without this the OpenOCD build fails in `configure`:
+### The configuration
+
+Four settings, and three of them are not optional.
 
 ```
+MACHINE = "uno-q"
+
+# Every unit this layer ships is a systemd unit. On the default init the files
+# install and nothing starts: no gadget, no console on it, no Pulsar, and no
+# error anywhere to say why. This is the one to get wrong if you want to lose an
+# afternoon.
+INIT_MANAGER = "systemd"
+
+# meta-qcom's firmware carries flagged licences. Without this those recipes are
+# skipped and the build fails on missing firmware.
+LICENSE_FLAGS_ACCEPTED = "synaptics-killswitch commercial"
+
+# OpenOCD's linuxgpiod adapter wants libgpiod v1 and meta-oe defaults to v2, so
+# without this the OpenOCD build fails in configure.
 PREFERRED_VERSION_libgpiod = "1.6.5"
 ```
 
