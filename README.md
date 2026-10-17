@@ -266,7 +266,7 @@ not want the Exein stack.
 
 ### The configuration
 
-Four settings, and three of them are not optional.
+Three settings, all required.
 
 ```
 MACHINE = "uno-q"
@@ -277,14 +277,22 @@ MACHINE = "uno-q"
 # afternoon.
 INIT_MANAGER = "systemd"
 
-# meta-qcom's firmware carries flagged licences. Without this those recipes are
-# skipped and the build fails on missing firmware.
-LICENSE_FLAGS_ACCEPTED = "synaptics-killswitch commercial"
-
 # OpenOCD's linuxgpiod adapter wants libgpiod v1 and meta-oe defaults to v2, so
 # without this the OpenOCD build fails in configure.
 PREFERRED_VERSION_libgpiod = "1.6.5"
 ```
+
+Deliberately no `LICENSE_FLAGS_ACCEPTED`. None of the BSP layers here flags a
+licence: `meta-qcom`, `meta-qcom-arduino` and `meta-lts-mixins` set
+`LICENSE_FLAGS` on nothing at all, so a minimal image needs no acceptance. The
+flagged recipes in oe-core and meta-oe are codecs and a simulator, which this
+image does not pull in.
+
+Resist pre-accepting anything, and `commercial` in particular. It is one flag
+shared by two dozen recipes, so accepting it globally admits all of them the
+moment something depends on one, with nothing in the build to say so. If a build
+ever does stop on a licence, accept the specific flag it names and only that
+one.
 
 Then install it:
 
@@ -612,8 +620,10 @@ for containers at build time and `rootfs-expand`.
 
 Doing this by hand teaches you the board. Try
 [EmbedForge](https://embedforge.io), the enterprise-grade build platform for
-device makers. Connect its MCP, describe the device to the AI agent you already
-use, and it builds it.
+device makers: connect its MCP to the AI agent you already use, describe the
+device, and it starts the builds for Linux and the MCU firmware together, on our
+cloud or your own runners, with an SBOM and a declaration of conformity per
+device for the EU Cyber Resilience Act.
 
 In public preview, access by invitation, so ask if you are building a product on
 this.
