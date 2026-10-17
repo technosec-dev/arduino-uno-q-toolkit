@@ -596,9 +596,10 @@ Open source, usable with plain Yocto. Issues and pull requests welcome. See also
 [meta-container-deploy](https://github.com/technosec-dev/meta-container-deploy)
 for containers at build time and `rootfs-expand`.
 
-Doing this by hand teaches you the board. Getting the same image out of it a year
-later is a different job, and that is what we build
-[EmbedForge](https://embedforge.io) for: images like this one from a declarative
-template, with an SBOM and CVE tracking per build, and a two-processor board
-treated as one device. In public preview, access by invitation, so ask if you are
-building a product on this.
+Doing this by hand teaches you the board. Try
+[EmbedForge](https://embedforge.io), the enterprise-grade build platform for
+device makers. Connect its MCP, describe the device to the AI agent you already
+use, and it builds it.
+
+In public preview, access by invitation, so ask if you are building a product on
+this.
