@@ -1,0 +1,17 @@
+[Unit]
+Description=Login console on the USB serial gadget
+# ttyGS0 exists only once the gadget is bound. Requires, not merely After:
+# without it agetty fails and respawns every two seconds forever, and the
+# restart counter buries the one line that explains why. A hard dependency turns
+# that into a single honest failure.
+Requires=usb-gadget.service
+After=usb-gadget.service
+
+[Service]
+ExecStart=-/sbin/agetty --keep-baud 115200 ttyGS0 linux
+Type=idle
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

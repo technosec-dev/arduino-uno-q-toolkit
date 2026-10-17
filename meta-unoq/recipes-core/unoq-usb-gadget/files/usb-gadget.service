@@ -1,0 +1,20 @@
+[Unit]
+Description=Bind the USB ECM+ACM gadget
+# A unit of its own, with no sandboxing directives, because this loads a module
+# and writes to configfs. Hooking it onto systemd-networkd's ExecStartPre looks
+# tempting and cannot work: that unit ships ProtectKernelModules=yes, which
+# denies the modprobe that creates /sys/kernel/config/usb_gadget, and a dashed
+# ExecStartPre then discards the failure. A board stayed dark on USB across two
+# builds that way while the script itself was correct.
+#
+# Ordered before networkd because usb0 exists only once the gadget is bound, and
+# before the console because ttyGS0 comes from the same gadget.
+Before=systemd-networkd.service unoq-usb-console.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/usb-gadget.sh
+
+[Install]
+WantedBy=multi-user.target

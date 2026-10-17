@@ -208,8 +208,19 @@ A successful run ends with `partition 0 is now bootable`.
 Any Yocto build for this board needs the Qualcomm BSP layers (`meta-qcom` and
 `meta-qcom-arduino`, which carries the `uno-q` machine and the
 `qrb2210-arduino-imola` device tree) on top of `openembedded-core`. That part is
-upstream and documented. What is not documented is how to program the
-microcontroller afterwards, which is what `meta-unoq` is for.
+upstream and documented. What is not documented is everything after that: how
+to reach the board at all, how to program its microcontroller, and which kernel
+symbols the Exein stack needs that nothing else will set for you. That is what
+`meta-unoq` is for.
+
+It provides:
+
+| | |
+|---|---|
+| `packagegroup-unoq-base` | the USB gadget and its console, OpenOCD with the SWD pin map, `unoq-flash-mcu` |
+| `packagegroup-unoq-exein` | Pulsar plus a systemd unit to run it |
+| kernel fragments | the gadget symbols, and Pulsar's requirements that `meta-exein` cannot deliver here |
+| a configuration check | warns at `do_configure` when a fragment was silently ignored |
 
 Add it to `bblayers.conf`. The layer lives in a subdirectory of this
 repository, so point at that path rather than the repository root:
@@ -227,17 +238,109 @@ meta-oe defaults to v2, so without this the OpenOCD build fails in `configure`:
 PREFERRED_VERSION_libgpiod = "1.6.5"
 ```
 
-Then install the tools in your image:
+Then install it:
 
 ```
-CORE_IMAGE_EXTRA_INSTALL += "unoq-mcu-tools"
+CORE_IMAGE_EXTRA_INSTALL += "packagegroup-unoq-base"
 ```
 
-That pulls in OpenOCD, and the layer's `bbappend` enables the `linuxgpiod`
+That brings the USB gadget, the login console on it, and the MCU tooling. It
+pulls in OpenOCD, and the layer's `bbappend` enables the `linuxgpiod`
 adapter driver. meta-oe builds OpenOCD with `sysfsgpio` and `remote-bitbang`
 only, and neither is usable here: `sysfsgpio` is deprecated upstream and numbers
 pins globally, so a number changes when a gpiochip's base moves, while
 `remote-bitbang` wants a server at the other end.
+
+### Reaching the board over the USB-C cable
+
+The board has no ethernet port and no console connector. Out of the box an image
+you build yourself offers nothing a host can connect to, and the only other way
+in is the 1.8 V serial header described further up, which needs a level-correct
+adapter and some wiring.
+
+`packagegroup-unoq-base` fixes that with a CDC-ECM + CDC-ACM gadget on the
+USB-C socket the board is already powered by: an address and a login shell over
+one cable. The board takes `192.168.7.2/24` on `usb0`; give the host
+`192.168.7.1/24` on its end and you have both a network and a serial console.
+
+A static address rather than DHCP, deliberately: there is usually no server on
+the host, and a link that never comes up is harder to diagnose than one with a
+known address.
+
+Two things in here were expensive to learn and are worth repeating if you write
+anything similar.
+
+The gadget cannot be created from a hook inside `systemd-networkd`. That unit
+ships `ProtectKernelModules=yes`, so no process in it can load a module, and
+`/sys/kernel/config/usb_gadget` is created by `libcomposite`, not by configfs. A
+dashed `ExecStartPre=-` then throws the failure away. The board stayed dark on
+USB across two builds that way while the script itself was correct and bound the
+controller first try by hand. Hence a unit of its own, with no sandboxing.
+
+And every command in the script is a BusyBox applet with BusyBox semantics. The
+first version used `head -1`, a GNU extension BusyBox refuses outright, so it
+exited non-zero on every boot since the first. BusyBox also has no `install`, no
+`parted`, no `timeout`, and its `od` takes none of `-A`, `-t` or `-N`.
+
+### The Exein stack, and a trap worth knowing about
+
+```
+CORE_IMAGE_EXTRA_INSTALL += "packagegroup-unoq-exein"
+```
+
+That needs [meta-exein](https://github.com/exein-io/meta-exein) in your
+`bblayers.conf`. It installs Pulsar and, importantly, a systemd unit to run it:
+meta-exein ships the binaries and no unit, so on a systemd image the agent is
+present and never starts, and nothing fails to tell you.
+
+The trap is in the kernel configuration. meta-exein lists Pulsar's 21 required
+symbols in `btf.cfg` and wires it in through `btf.scc`. A `.scc` is a
+`kernel-yocto` construct, and `linux-qcom` is not a `kernel-yocto` recipe: it has
+no `.kernel-meta`, so the `.scc` is fetched into the kernel work directory and
+then ignored entirely. None of `btf.cfg` is merged. Nothing warns, the build is
+green, and Pulsar starts.
+
+What you lose is the eBPF LSM path. The `meta-qcom` defconfig happens to supply
+17 of those 21 symbols, so Pulsar looks healthy, logs threats, and quietly runs
+on kprobes instead. The symptom, at debug log level only, is:
+
+```
+WARN bpf_feature_autodetect::lsm] LSM not supported: Load failed
+        Unknown BTF type `bpf_lsm_socket_bind`
+```
+
+Pulsar's probe loads exactly one BPF LSM program, on the `socket_bind` hook, and
+every socket LSM hook sits behind `CONFIG_SECURITY_NETWORK`. With that unset the
+kernel BTF held 216 `bpf_lsm_*` symbols and not a single `bpf_lsm_socket*`, so
+the one hook it tests was in the one family compiled out. The whole enforcement
+path was lost to a single unset bool.
+
+This layer ships those symbols as a plain `.cfg`, which `linux-qcom` does merge.
+Setting them took the kernel to 816 `bpf_lsm_*` symbols, 51 of them
+`bpf_lsm_socket*`, and the warning went away.
+
+### When a kernel fragment is ignored
+
+A fragment is a request, not a setting. A symbol that another option `select`s
+follows that option instead, and is dropped in silence. Asking for
+`CONFIG_USB_LIBCOMPOSITE=y` does nothing on its own, because it has no prompt:
+`USB_CONFIGFS` is the option that selects it.
+
+That cost two builds and a board that presented nothing on USB, so this layer
+checks. At `do_configure` it compares what the fragments asked for against what
+Kconfig produced, and warns per symbol:
+
+```
+WARNING: meta-unoq kernel configuration: asked for CONFIG_USB_LIBCOMPOSITE=y,
+but the kernel was configured with CONFIG_USB_LIBCOMPOSITE=m. A symbol that
+another option selects cannot be set from a fragment; set the option that
+selects it instead.
+```
+
+Worth reading your build log for. It appears long before anything is flashed.
+`UNOQ_EXPECTED_CONFIG` is the list it checks and `UNOQ_KERNEL_FRAGMENTS` selects
+which fragments are applied, so drop a name from the latter if you do not want
+the Exein symbols.
 
 ### Programming the MCU from the board itself
 

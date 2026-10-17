@@ -19,6 +19,15 @@ RDEPENDS:${PN} = "openocd"
 
 # Not architecture specific: a shell script and a text configuration.
 inherit allarch
+# Everything here is a local file, so there is no unpacked source tree and
+# ${UNPACKDIR}/${BP} never exists. Without this, do_unpack warns
+#
+#   the directory ${UNPACKDIR}/${BP} ... pointed to by the S variable doesn't
+#   exist - please set S within the recipe
+#
+# on every build. The files land directly in ${UNPACKDIR}.
+S = "${UNPACKDIR}"
+
 
 do_install() {
     install -d ${D}${datadir}/unoq-mcu-tools

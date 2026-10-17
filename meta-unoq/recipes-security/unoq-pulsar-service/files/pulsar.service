@@ -1,0 +1,15 @@
+[Unit]
+Description=Exein Pulsar runtime security agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/pulsard
+Restart=on-failure
+RestartSec=5
+# No output redirection on purpose. Sending stdout to a file under /var/log got
+# "can't create /var/log/pulsard.log: Read-only file system" on a read-only
+# rootfs, and journald captures the daemon's output anyway.
+
+[Install]
+WantedBy=multi-user.target

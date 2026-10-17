@@ -1,0 +1,9 @@
+# A static address rather than DHCP: there is no server on the host by default,
+# and a link that never comes up is harder to diagnose than one with a known
+# address. Give the host 192.168.7.1/24 to match.
+[Match]
+Name=usb0
+
+[Network]
+Address=192.168.7.2/24
+ConfigureWithoutCarrier=yes
