@@ -3,18 +3,10 @@
 Build your own firmware for both of the Arduino UNO Q's processors, and get the
 factory image back when you want it.
 
-The UNO Q has two processors. The Qualcomm QRB2210 (the MPU) runs Linux from
-eMMC. The STM32U585 (the MCU) runs its own firmware. This repository covers
-both, plus the part that is least documented anywhere: the MCU has no external
-SWD pins, so the only thing that can program it is the Linux side of the same
-board.
-
-What is here:
-
-- a guide to EDL recovery and flashing, below;
-- `meta-unoq`, a Yocto layer that enables OpenOCD's `linuxgpiod` adapter and
-  ships the board's SWD pin map with a script that flashes the MCU;
-- notes on building a Linux image that can program its own microcontroller.
+The board has two. The Qualcomm QRB2210 (the MPU) runs Linux from eMMC, and the
+STM32U585 (the MCU) runs its own firmware. The MCU has no external SWD pins, so
+the only thing that can program it is the Linux side of the same board. That one
+fact shapes everything else here.
 
 There is no SD card slot for the MPU, so there is no "take the card out and fix
 it on your laptop". The only way in is the SoC's Emergency Download mode (EDL),
@@ -22,6 +14,28 @@ which lives in the chip's mask ROM. That cuts both ways: it is the only way to
 install anything, and it is also why the board is very hard to brick
 permanently. A bad image means the board will not boot until you flash it
 again, not that the board is gone.
+
+## What you end up with
+
+A Linux image of your own on the MPU, reachable over the single USB-C cable as
+both a network link and a login shell, able to program the MCU. Firmware of your
+own on the MCU, under MCUboot, driving the 13x8 LED matrix. Optionally the Exein
+Pulsar runtime security agent, with the kernel configured so its eBPF LSM path
+works instead of silently falling back to kprobes.
+
+Arduino's Debian image is the right place to start and the wrong place to ship
+from: you cannot pin what is in it, drop what you do not need, or turn on a
+kernel option. Past the prototype you build your own, and then you need the
+parts here.
+
+## What is here
+
+- `meta-unoq`, a Yocto layer: the USB gadget and its login console, OpenOCD with
+  the board's SWD pin map and `unoq-flash-mcu`, a systemd unit for Pulsar, and
+  the kernel fragments all of it needs;
+- `zephyr/led-matrix`, an application and a west manifest, built with `sysbuild`
+  so one build produces MCUboot and the signed application together;
+- a guide to EDL recovery and flashing, below.
 
 ## What you need
 
