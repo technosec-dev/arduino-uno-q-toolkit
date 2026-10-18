@@ -76,10 +76,26 @@ run_openocd() {
 
 case "$MODE" in
 probe)
-    # reset halt rather than halt: a running Zephyr application idles in WFI,
-    # and halting it then reports "unknown state" instead of a program counter,
-    # which looks like a fault and is not one.
-    run_openocd "init; reset halt; reg pc; resume; shutdown"
+    # halt, NOT reset halt. A probe must not disturb what it is probing, and
+    # "reset halt" does: on this part the reset vector is inside ST's ROM, so
+    # halting there and resuming continues in the ROM rather than letting the
+    # boot path reach flash. The application never starts again and the board
+    # needs a power cycle to recover. That is what "unoq-flash-mcu --probe"
+    # used to do, and it stopped a running LED matrix application dead.
+    #
+    # It was chosen for a tidier reading: halting a Zephyr application that is
+    # idling in WFI warns
+    #
+    #     target was in unknown state when halt was requested
+    #
+    # and reports no program counter, which looks like a fault and is not one.
+    # A cosmetic warning is a much smaller price than restarting the board, so
+    # the warning stays and is explained here instead.
+    echo "unoq-flash-mcu: halting to read the MCU state, then resuming." >&2
+    echo "unoq-flash-mcu: 'target was in unknown state' below is normal: it is" >&2
+    echo "unoq-flash-mcu: what a Zephyr application idling in WFI looks like," >&2
+    echo "unoq-flash-mcu: and the program counter is unavailable in that case." >&2
+    run_openocd "init; halt; reg pc; reg msp; resume; shutdown"
     exit 0
     ;;
 reset)

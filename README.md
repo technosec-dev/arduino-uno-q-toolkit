@@ -422,6 +422,35 @@ unoq-flash-mcu --probe    # report what the MCU is and where it is executing
 It runs unprivileged: the SWD pins are reached through `/dev/gpiochip*`, so
 membership of the group owning those nodes is enough.
 
+`--probe` is safe to run against a board doing its job: it halts the MCU, reads
+where it is, and resumes. Expect this on the way past, and ignore it:
+
+```
+Warn : [stm32u5x.cpu] target was in unknown state when halt was requested
+```
+
+That is what a Zephyr application idling in WFI looks like, not a fault. The
+program counter is unavailable in that case, which is the price of not
+disturbing the application.
+
+`--reset` restarts the MCU, and on this part that is a bigger deal than it
+sounds. The reset vector is inside ST's system ROM, so a debugger that halts at
+reset and resumes carries on inside the ROM instead of letting the boot path
+reach flash: the application never starts, and **only a power cycle recovers
+it**. A clean `reset run` over SWD is not enough. `--probe` used to do exactly
+this and would stop a running application dead.
+
+So when a board that was working goes dark, read the program counter before
+suspecting the firmware:
+
+```sh
+unoq-flash-mcu --probe
+```
+
+`0x0801xxxx` is your application running from slot 0. `0x0bf9xxxx` is the system
+ROM, which means the MCU never got to your code: power-cycle it. The flash
+contents are almost certainly fine, and the option bytes with them.
+
 Both images have to come from the same build. The bootloader embeds the public
 key the application was signed with, and the two agree on where slot 0 begins.
 A signed application alone leaves a board that does nothing; a bootloader alone
