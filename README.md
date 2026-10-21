@@ -37,6 +37,13 @@ parts here.
   so one build produces MCUboot and the signed application together;
 - a guide to EDL recovery and flashing, below.
 
+If you would rather be walked through it in order, with the reasoning for each
+step rather than the reference for it, there is a write-up of the whole thing:
+[Building Yocto and Zephyr for the Arduino UNO Q](https://embedforge.io/blog/arduino-uno-q-yocto-zephyr).
+It covers the same ground as this README, from keeping a copy of the factory
+image to the Zephyr build, including the Pulsar trap and the ignored kernel
+fragment. Read it for the path, come back here for the detail.
+
 ## What you need
 
 - A **USB-C cable that carries data**. See the troubleshooting section; this
