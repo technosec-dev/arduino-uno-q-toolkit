@@ -314,6 +314,30 @@ only, and neither is usable here: `sysfsgpio` is deprecated upstream and numbers
 pins globally, so a number changes when a gpiochip's base moves, while
 `remote-bitbang` wants a server at the other end.
 
+### While meta-qcom-arduino catches up
+
+In late October 2026 meta-qcom's `wrynose` branch moved qcom-ptool to a
+revision that renamed this board's partition layout from
+`qrb2210-unoq-abl/emmc-16GB` to `qrb2210-unoq-abl/emmc`. meta-qcom-arduino
+followed on `main` (fb2d4a8) but not yet on `wrynose`, so a wrynose build of
+both branches as they stand fails at the very end, in `do_image_qcomflash`:
+
+```
+install: cannot stat '.../partitions/qrb2210-unoq-abl/emmc-16GB/gpt_main*.bin': No such file or directory
+```
+
+Until the fix reaches `wrynose`, set the new path yourself:
+
+```
+QCOM_PARTITION_FILES_SUBDIR = "partitions/qrb2210-unoq-abl/emmc"
+```
+
+Only with a meta-qcom that has the qcom-ptool bump (meta-qcom bf9b086 or
+later). On an older meta-qcom the old path is still the right one, and this
+setting breaks the same step the other way round. The layout itself did not
+change: upstream checked that partition names, type GUIDs, offsets and sizes
+match the previous ptool output.
+
 ### Reaching the board over the USB-C cable
 
 The board has no ethernet port and no console connector. Out of the box an image
