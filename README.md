@@ -501,7 +501,7 @@ west manifest to build it, so the MCU half needs no more than the Yocto half
 does: a checkout and one command.
 
 ```
-zephyr/west.yml                                 pins Zephyr v4.5.0-rc1
+zephyr/west.yml                                 pins Zephyr v4.5.0
 zephyr/led-matrix/CMakeLists.txt
 zephyr/led-matrix/prj.conf                      display + console
 zephyr/led-matrix/sysbuild.conf                 MCUboot alongside the app
@@ -538,13 +538,12 @@ build/led-matrix/zephyr/zephyr.signed.bin
 
 which are the two files `unoq-flash-mcu` wants.
 
-### Why the manifest pins a release candidate
+### Why the manifest pins Zephyr v4.5.0
 
-`v4.5.0-rc1` is the first Zephyr tag whose `arduino_uno_q` devicetree describes
+`v4.5.0` is the first Zephyr release whose `arduino_uno_q` devicetree describes
 the matrix. The board itself landed earlier and is in `v4.4.2`, but that tag has
 no `charlieplex-led-matrix` node and no `zephyr,display`, so this application
-does not build against it. There is no stable tag with the matrix at the time of
-writing, so the choice is a release candidate or nothing.
+does not build against it.
 
 ### What the application does, and what is worth copying from it
 

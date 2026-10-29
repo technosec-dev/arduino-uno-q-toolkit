@@ -1,11 +1,9 @@
 # West manifest for building this application without EmbedForge.
 #
-# Pinned to v4.5.0-rc1 on purpose. That is the first Zephyr tag whose
-# arduino_uno_q devicetree describes the LED matrix: v4.4.2 carries the board
-# but has no charlieplex-led-matrix node and no zephyr,display, so this
-# application does not build against it at all. v4.5.0-rc1 is a release
-# candidate, with whatever that implies; there is no stable tag with the matrix
-# at the time of writing.
+# Pinned to v4.5.0, the first Zephyr release whose arduino_uno_q devicetree
+# describes the LED matrix: v4.4.2 carries the board but has no
+# charlieplex-led-matrix node and no zephyr,display, so this application does
+# not build against it at all.
 #
 # import: true pulls in the modules that revision expects, which is where
 # hal_stm32 comes from for this SoC and mcuboot for the sysbuild bootloader.
@@ -18,7 +16,7 @@ manifest:
   projects:
     - name: zephyr
       remote: upstream
-      revision: v4.5.0-rc1
+      revision: v4.5.0
       import: true
 
   self:
